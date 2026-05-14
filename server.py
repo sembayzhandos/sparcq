@@ -128,6 +128,7 @@ class JobOut(BaseModel):
     estimated_hours: float
     gpu_count: int
     description: Optional[str]
+    script_content: Optional[str] = None
     status: str
     is_valid: bool
     validation_message: Optional[str]
@@ -209,6 +210,29 @@ def get_job(job_id: int, user: User = Depends(_get_user), db: Session = Depends(
     if not user.is_admin and job.submitter != user.username:
         raise HTTPException(403, "Access denied")
     return job
+
+
+@app.get("/jobs/{job_id}/logs")
+def get_job_logs(job_id: int, user: User = Depends(_get_user), db: Session = Depends(get_db)):
+    """Fetch stdout/stderr + sacct accounting for a dispatched job."""
+    job = db.query(Job).filter(Job.id == job_id).first()
+    if not job:
+        raise HTTPException(404, "Job not found")
+    if not user.is_admin and job.submitter != user.username:
+        raise HTTPException(403, "Access denied")
+    if not job.slurm_job_id:
+        raise HTTPException(400, "Job hasn't been dispatched yet — no logs available")
+
+    cluster = CLUSTERS.get(job.cluster)
+    if not cluster:
+        raise HTTPException(500, f"Cluster '{job.cluster}' is not configured")
+    if isinstance(cluster, VoltageParkCluster):
+        raise HTTPException(400, "Log fetch is not implemented for Voltage Park yet")
+
+    try:
+        return cluster.fetch_logs(job.slurm_job_id, job.script_content)
+    except Exception as exc:
+        raise HTTPException(500, f"Failed to fetch logs: {exc}")
 
 
 @app.delete("/jobs/{job_id}")

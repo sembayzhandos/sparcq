@@ -105,7 +105,7 @@ class SLURMCluster:
             # Ensure remote staging directory exists
             self._run(client, f"mkdir -p {self.remote_job_dir}")
 
-            remote_path = f"{self.remote_job_dir}/gpuq_{job_id}.sh"
+            remote_path = f"{self.remote_job_dir}/sparcq_{job_id}.sh"
 
             sftp = client.open_sftp()
             try:
@@ -136,6 +136,61 @@ class SLURMCluster:
             return _map_slurm_state(raw)
         finally:
             client.close()
+
+    def fetch_logs(self, slurm_job_id: str, script_content: str) -> dict:
+        """Fetch stdout/stderr and SLURM accounting for a completed job.
+
+        Looks for #SBATCH --output and --error paths in the script (with %j
+        substituted to the SLURM job ID). Falls back to slurm-<id>.out in
+        the staging dir if not specified.
+        """
+        stdout_path = _parse_sbatch_path(script_content, "output") or f"{self.remote_job_dir}/slurm-{slurm_job_id}.out"
+        stderr_path = _parse_sbatch_path(script_content, "error")
+        stdout_path = stdout_path.replace("%j", slurm_job_id).replace("%A", slurm_job_id)
+        if stderr_path:
+            stderr_path = stderr_path.replace("%j", slurm_job_id).replace("%A", slurm_job_id)
+
+        client = self._connect()
+        try:
+            def _read(p: str) -> str:
+                if not p:
+                    return ""
+                out, _ = self._run(client, f"cat {p} 2>/dev/null || true")
+                return out
+
+            stdout_content = _read(stdout_path)
+            stderr_content = _read(stderr_path) if stderr_path else ""
+
+            acct_out, _ = self._run(
+                client,
+                f"sacct -j {slurm_job_id} -o JobID,JobName,State,Start,End,Elapsed,NodeList,AllocTRES -P --noheader 2>/dev/null",
+            )
+
+            return {
+                "stdout_path": stdout_path,
+                "stderr_path": stderr_path,
+                "stdout": stdout_content,
+                "stderr": stderr_content,
+                "accounting": acct_out,
+            }
+        finally:
+            client.close()
+
+
+def _parse_sbatch_path(script: str, kind: str) -> Optional[str]:
+    """Return the value of #SBATCH --output= or --error= if present."""
+    short_flag = "-o" if kind == "output" else "-e"
+    for line in script.splitlines():
+        s = line.strip()
+        if not s.startswith("#SBATCH"):
+            continue
+        m = re.search(rf"--{kind}[= ]([^\s]+)", s)
+        if m:
+            return m.group(1)
+        m = re.search(rf"(?:^|\s){short_flag}\s+([^\s]+)", s)
+        if m:
+            return m.group(1)
+    return None
 
 
 def _map_slurm_state(raw: str) -> str:

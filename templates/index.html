@@ -464,8 +464,10 @@ function showJob(id) {
       ${j.notes ? `<div class="detail-row"><span class="detail-label">Admin notes</span>${j.notes}</div>` : ''}
       <div style="margin-top:14px;font-size:12px;color:var(--muted)">Script</div>
       <div class="code-block">${escHtml(j.script_content)}</div>
+      <div id="logs-section"></div>
       <div class="modal-actions">
         <button class="btn btn-muted" onclick="closeModal()">Close</button>
+        ${j.slurm_job_id ? `<button class="btn btn-primary" onclick="loadLogs(${j.id})">View Logs</button>` : ''}
         ${canWithdraw(j) ? `<button class="btn btn-danger" onclick="withdrawJob(${j.id})">Withdraw</button>` : ''}
         ${IS_ADMIN && j.status === 'validated' ? `<button class="btn btn-success" onclick="approveJob(${j.id})">Approve</button>` : ''}
         ${IS_ADMIN && ['validated','approved','pending'].includes(j.status) ? `<button class="btn btn-warn" onclick="rejectJob(${j.id})">Reject</button>` : ''}
@@ -474,13 +476,37 @@ function showJob(id) {
   }).catch(e => toast('Error: ' + e, true));
 }
 
+function loadLogs(id) {
+  const section = document.getElementById('logs-section');
+  section.innerHTML = '<div style="color:var(--muted);font-size:12px;margin-top:14px">Fetching logs from cluster…</div>';
+  api(`/jobs/${id}/logs`).then(d => {
+    section.innerHTML = `
+      <div style="margin-top:16px;font-size:12px;color:var(--muted)">SLURM accounting</div>
+      <div class="code-block" style="max-height:120px">${escHtml(d.accounting) || '(no sacct data)'}</div>
+      <div style="margin-top:10px;font-size:12px;color:var(--muted)">
+        stdout <span style="color:var(--text)">${escHtml(d.stdout_path)}</span>
+      </div>
+      <div class="code-block">${escHtml(d.stdout) || '(empty)'}</div>
+      ${d.stderr_path ? `
+        <div style="margin-top:10px;font-size:12px;color:var(--muted)">
+          stderr <span style="color:var(--text)">${escHtml(d.stderr_path)}</span>
+        </div>
+        <div class="code-block">${escHtml(d.stderr) || '(empty)'}</div>
+      ` : ''}
+    `;
+  }).catch(e => {
+    section.innerHTML = `<div style="color:var(--danger);font-size:13px;margin-top:14px">Failed: ${e}</div>`;
+  });
+}
+
 function closeModal(e) {
   if (e && e.target !== document.getElementById('modal-overlay')) return;
   document.getElementById('modal-overlay').classList.remove('open');
 }
 
 function escHtml(s) {
-  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  if (s == null) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
 // ---------- Admin: add user ----------
