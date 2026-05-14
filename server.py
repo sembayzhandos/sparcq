@@ -22,8 +22,25 @@ from voltagepark import VoltageParkCluster
 # Config + DB
 # ---------------------------------------------------------------------------
 
+def _deep_merge(base: dict, overlay: dict) -> dict:
+    """Recursively merge overlay into base (overlay wins for non-dict values)."""
+    for k, v in overlay.items():
+        if isinstance(v, dict) and isinstance(base.get(k), dict):
+            _deep_merge(base[k], v)
+        else:
+            base[k] = v
+    return base
+
+
 with open("config.yaml") as _f:
     CONFIG = yaml.safe_load(_f)
+
+# Overlay secrets from config.local.yaml (gitignored) if it exists
+import os.path
+if os.path.exists("config.local.yaml"):
+    with open("config.local.yaml") as _f:
+        _local = yaml.safe_load(_f) or {}
+    _deep_merge(CONFIG, _local)
 
 engine = create_engine("sqlite:///sparcq.db", connect_args={"check_same_thread": False})
 Base.metadata.create_all(engine)
@@ -178,7 +195,7 @@ def submit_job(body: JobIn, user: User = Depends(_get_user), db: Session = Depen
     job = Job(
         submitter=user.username,
         cluster=body.cluster,
-        partition=cluster.gpu_partition,
+        partition=getattr(cluster, "gpu_partition", "instant-vm"),
         script_content=body.script_content,
         estimated_hours=body.estimated_hours,
         gpu_count=body.gpu_count,

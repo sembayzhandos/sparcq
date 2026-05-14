@@ -1,10 +1,10 @@
 # SPARCq Configuration
 
 # How often the daemon checks clusters for available GPU nodes (minutes)
-poll_interval_minutes: 5
+poll_interval_minutes: 1
 
 # How often the daemon checks running job status (minutes)
-status_check_interval_minutes: 2
+status_check_interval_minutes: 1
 
 # Require admin approval before jobs are dispatched?
 require_admin_approval: true
@@ -33,10 +33,10 @@ clusters:
 
   cheaha:
     host: cheaha.rc.uab.edu
-    username: YOUR_UAB_USERNAME
-    ssh_key_path: ~/.ssh/cheaha_key
-    gpu_partition: pascalnodes   # or amperenodes for A100s
-    remote_job_dir: /scratch/YOUR_PROJECT/sparcq_jobs
+    username: zsembay8
+    ssh_key_path: ~/.ssh/id_ed25519
+    gpu_partition: pascalnodes   # P100s; switch to amperenodes for A100s
+    remote_job_dir: /scratch/zsembay8/sparcq_jobs
 
   alabama:
     host: uahpc.asc.edu
