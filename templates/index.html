@@ -29,7 +29,8 @@
 
   /* Card */
   .card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 20px; margin-bottom: 20px; }
-  .card h2 { font-size: 15px; font-weight: 600; margin-bottom: 16px; color: var(--text); }
+  .card h2 { font-size: 15px; font-weight: 600; margin-bottom: 16px; color: var(--text); display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .card h2 .btn { margin: 0; }
 
   /* Login */
   .login-card { width: 360px; }
@@ -157,11 +158,11 @@
     <!-- Dashboard -->
     <div id="tab-dashboard">
       <div class="card">
-        <h2>Cluster Status <button class="btn btn-muted btn-sm" onclick="loadClusters()" style="float:right">Refresh</button></h2>
+        <h2>Cluster Status <button class="btn btn-muted btn-sm" onclick="loadClusters()">Refresh</button></h2>
         <div class="cluster-grid" id="cluster-grid">Loading…</div>
       </div>
       <div class="card">
-        <h2>My Jobs <button class="btn btn-muted btn-sm" onclick="loadJobs()" style="float:right">Refresh</button></h2>
+        <h2>My Jobs <button class="btn btn-muted btn-sm" onclick="loadJobs()">Refresh</button></h2>
         <div class="tbl-wrap" id="jobs-table">Loading…</div>
       </div>
     </div>
@@ -215,7 +216,7 @@ python3 train.py"></textarea>
     <!-- Admin -->
     <div id="tab-admin" style="display:none">
       <div class="card">
-        <h2>All Jobs <button class="btn btn-muted btn-sm" onclick="loadJobs(true)" style="float:right">Refresh</button></h2>
+        <h2>All Jobs <button class="btn btn-muted btn-sm" onclick="loadJobs(true)">Refresh</button></h2>
         <div class="tbl-wrap" id="admin-jobs-table">Loading…</div>
       </div>
       <div class="card">
@@ -307,8 +308,9 @@ function loadAll() { loadClusters(); loadJobs(); loadClusterDropdown(); }
 
 // ---------- Clusters ----------
 function loadClusters() {
+  const grid = document.getElementById('cluster-grid');
+  grid.innerHTML = '<div style="color:var(--muted);padding:8px 0">Refreshing…</div>';
   api('/clusters').then(data => {
-    const grid = document.getElementById('cluster-grid');
     grid.innerHTML = '';
     for (const [name, info] of Object.entries(data)) {
       const idle = info.idle_nodes;
@@ -419,6 +421,8 @@ function canWithdraw(j) {
 
 function loadJobs(adminMode = false) {
   ALL_JOBS_MODE = adminMode;
+  const target = adminMode ? 'admin-jobs-table' : 'jobs-table';
+  document.getElementById(target).innerHTML = '<div style="color:var(--muted);padding:8px 0">Refreshing…</div>';
   api('/jobs').then(jobs => {
     renderJobs(jobs, 'jobs-table');
     if (adminMode) renderJobs(jobs, 'admin-jobs-table');
