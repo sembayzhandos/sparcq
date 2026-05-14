@@ -1,0 +1,46 @@
+# SPARCq Configuration
+
+# How often the daemon checks clusters for available GPU nodes (minutes)
+poll_interval_minutes: 5
+
+# How often the daemon checks running job status (minutes)
+status_check_interval_minutes: 2
+
+# Require admin approval before jobs are dispatched?
+require_admin_approval: true
+
+# Cluster definitions — add/remove as needed
+# Each cluster must have a 'type' field: 'slurm' (default) or 'voltagepark'
+clusters:
+  voltagepark:
+    type: voltagepark
+    api_key: YOUR_VOLTAGEPARK_API_KEY   # from https://cloud.voltagepark.com
+    # Optional: filter to a specific GPU model (matches against preset resource keys)
+    # gpu_model_filter: H100            # e.g. H100, A100, L40S — leave blank for any GPU
+    # min_gpus: 1                       # minimum GPUs per preset
+    operating_system: "Ubuntu 22.04 LTS"
+    org_ssh_key_mode: all               # "all" | "none" — which org SSH keys to inject
+    # ssh_keys:                         # additional public keys to inject (optional)
+    #   - "ssh-ed25519 AAAA... user@lab"
+    # timeout_multiplier: 1.5           # terminate VM after estimated_hours * this factor
+
+  tacc:
+    host: frontera.tacc.utexas.edu
+    username: YOUR_TACC_USERNAME
+    ssh_key_path: ~/.ssh/tacc_key
+    gpu_partition: rtx          # frontera GPU partition; alternatives: rtx-dev
+    remote_job_dir: /scratch1/YOUR_PROJECT/sparcq_jobs
+
+  cheaha:
+    host: cheaha.rc.uab.edu
+    username: YOUR_UAB_USERNAME
+    ssh_key_path: ~/.ssh/cheaha_key
+    gpu_partition: pascalnodes   # or amperenodes for A100s
+    remote_job_dir: /scratch/YOUR_PROJECT/sparcq_jobs
+
+  alabama:
+    host: uahpc.asc.edu
+    username: YOUR_ALABAMA_USERNAME
+    ssh_key_path: ~/.ssh/alabama_key
+    gpu_partition: gpu
+    remote_job_dir: /scratch/YOUR_PROJECT/sparcq_jobs

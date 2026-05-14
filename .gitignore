@@ -1,0 +1,31 @@
+# Database
+*.db
+*.db-shm
+*.db-wal
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+dist/
+build/
+
+# Secrets — never commit real credentials
+# config.yaml is tracked but keep API keys out of it;
+# use environment variables or a local override file instead
+config.local.yaml
+
+# Logs
+*.log
+logs/
+
+# macOS
+.DS_Store
+
+# Editor
+.vscode/
+.idea/
+*.swp

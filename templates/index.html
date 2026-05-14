@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SPARCq</title>
+<style>
+  :root {
+    --bg: #0f1117; --surface: #1a1d27; --border: #2a2d3e;
+    --accent: #6366f1; --accent2: #818cf8;
+    --text: #e2e8f0; --muted: #94a3b8; --danger: #ef4444;
+    --success: #22c55e; --warn: #f59e0b;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: 'Inter', system-ui, sans-serif; font-size: 14px; }
+  a { color: var(--accent2); text-decoration: none; }
+
+  /* Layout */
+  #login-screen { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+  #app-screen { display: none; }
+  .container { max-width: 1200px; margin: 0 auto; padding: 0 24px; }
+
+  /* Header */
+  header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 12px 0; }
+  .header-inner { display: flex; align-items: center; justify-content: space-between; }
+  .logo { font-size: 18px; font-weight: 700; color: var(--accent2); }
+  .user-badge { font-size: 12px; color: var(--muted); }
+  .user-badge span { color: var(--text); font-weight: 600; }
+
+  /* Card */
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 20px; margin-bottom: 20px; }
+  .card h2 { font-size: 15px; font-weight: 600; margin-bottom: 16px; color: var(--text); }
+
+  /* Login */
+  .login-card { width: 360px; }
+  .login-card h1 { font-size: 22px; font-weight: 700; margin-bottom: 6px; color: var(--accent2); }
+  .login-card p { color: var(--muted); margin-bottom: 24px; font-size: 13px; }
+
+  /* Form */
+  .form-row { margin-bottom: 14px; }
+  label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 5px; font-weight: 500; }
+  input, select, textarea {
+    width: 100%; padding: 9px 12px; border: 1px solid var(--border);
+    border-radius: 6px; background: var(--bg); color: var(--text); font-size: 13px;
+    outline: none; transition: border-color .15s;
+  }
+  input:focus, select:focus, textarea:focus { border-color: var(--accent); }
+  textarea { resize: vertical; min-height: 120px; font-family: monospace; font-size: 12px; }
+  .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+  /* Buttons */
+  .btn {
+    padding: 8px 16px; border: none; border-radius: 6px; cursor: pointer;
+    font-size: 13px; font-weight: 500; transition: opacity .15s; display: inline-block;
+  }
+  .btn:hover { opacity: .85; }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-sm { padding: 4px 10px; font-size: 12px; }
+  .btn-danger { background: var(--danger); color: #fff; }
+  .btn-success { background: var(--success); color: #fff; }
+  .btn-muted { background: var(--border); color: var(--text); }
+  .btn-warn { background: var(--warn); color: #000; }
+  .btn-full { width: 100%; }
+
+  /* Tabs */
+  .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 20px; }
+  .tab { padding: 10px 18px; cursor: pointer; color: var(--muted); border-bottom: 2px solid transparent; font-size: 13px; font-weight: 500; }
+  .tab.active { color: var(--accent2); border-bottom-color: var(--accent2); }
+
+  /* Table */
+  .tbl-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; padding: 8px 12px; color: var(--muted); font-weight: 500; font-size: 12px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  td { padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: rgba(255,255,255,.02); }
+
+  /* Status badges */
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 99px; font-size: 11px; font-weight: 600; }
+  .badge-pending   { background: #2a2d3e; color: var(--muted); }
+  .badge-validated { background: #1e3a4c; color: #67e8f9; }
+  .badge-approved  { background: #14532d; color: #86efac; }
+  .badge-submitted { background: #1e3a8a; color: #93c5fd; }
+  .badge-running   { background: #78350f; color: #fde68a; }
+  .badge-completed { background: #14532d; color: #4ade80; }
+  .badge-failed    { background: #7f1d1d; color: #fca5a5; }
+  .badge-rejected  { background: #7f1d1d; color: #fca5a5; }
+  .badge-invalid   { background: #7f1d1d; color: #fca5a5; }
+  .badge-withdrawn { background: #1a1d27; color: #475569; }
+
+  /* Cluster status */
+  .cluster-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+  .cluster-tile { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 14px; }
+  .cluster-name { font-weight: 700; margin-bottom: 4px; }
+  .cluster-idle { font-size: 28px; font-weight: 800; }
+  .idle-ok { color: var(--success); }
+  .idle-zero { color: var(--danger); }
+  .cluster-sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+  /* Toast */
+  #toast { position: fixed; bottom: 24px; right: 24px; z-index: 999;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+    padding: 12px 18px; font-size: 13px; display: none; max-width: 320px; }
+  #toast.ok { border-left: 3px solid var(--success); }
+  #toast.err { border-left: 3px solid var(--danger); }
+
+  /* Detail modal */
+  #modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.7); z-index: 100; align-items: center; justify-content: center; }
+  #modal-overlay.open { display: flex; }
+  .modal { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 24px; width: 640px; max-width: 95vw; max-height: 85vh; overflow-y: auto; }
+  .modal h3 { font-size: 16px; margin-bottom: 16px; }
+  .detail-row { display: flex; gap: 12px; margin-bottom: 10px; font-size: 13px; }
+  .detail-label { width: 130px; color: var(--muted); flex-shrink: 0; }
+  .code-block { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 12px; font-family: monospace; font-size: 12px; white-space: pre; overflow-x: auto; max-height: 300px; overflow-y: auto; margin-top: 10px; }
+  .modal-actions { display: flex; gap: 8px; margin-top: 20px; flex-wrap: wrap; }
+
+  .file-drop { border: 2px dashed var(--border); border-radius: 6px; padding: 20px; text-align: center; color: var(--muted); cursor: pointer; transition: border-color .15s; }
+  .file-drop:hover { border-color: var(--accent); }
+  .file-drop.has-file { border-color: var(--success); color: var(--success); }
+</style>
+</head>
+<body>
+
+<!-- Login -->
+<div id="login-screen">
+  <div class="card login-card">
+    <h1>SPARCq</h1>
+    <p>Enter your API key to continue.</p>
+    <div class="form-row">
+      <label>Server URL</label>
+      <input id="login-server" type="url" value="http://localhost:8000">
+    </div>
+    <div class="form-row">
+      <label>API Key</label>
+      <input id="login-key" type="password" placeholder="paste your key here">
+    </div>
+    <button class="btn btn-primary btn-full" onclick="doLogin()">Sign In</button>
+  </div>
+</div>
+
+<!-- App -->
+<div id="app-screen">
+  <header>
+    <div class="container header-inner">
+      <div class="logo">SPARCq</div>
+      <div class="user-badge">Signed in as <span id="username-badge">—</span> &nbsp;|&nbsp; <a href="#" onclick="doLogout()">Sign out</a></div>
+    </div>
+  </header>
+
+  <div class="container" style="padding-top:24px">
+    <div class="tabs">
+      <div class="tab active" onclick="switchTab('dashboard')">Dashboard</div>
+      <div class="tab" onclick="switchTab('submit')">Submit Job</div>
+      <div class="tab" id="admin-tab" style="display:none" onclick="switchTab('admin')">Admin</div>
+    </div>
+
+    <!-- Dashboard -->
+    <div id="tab-dashboard">
+      <div class="card">
+        <h2>Cluster Status <button class="btn btn-muted btn-sm" onclick="loadClusters()" style="float:right">Refresh</button></h2>
+        <div class="cluster-grid" id="cluster-grid">Loading…</div>
+      </div>
+      <div class="card">
+        <h2>My Jobs <button class="btn btn-muted btn-sm" onclick="loadJobs()" style="float:right">Refresh</button></h2>
+        <div class="tbl-wrap" id="jobs-table">Loading…</div>
+      </div>
+    </div>
+
+    <!-- Submit -->
+    <div id="tab-submit" style="display:none">
+      <div class="card">
+        <h2>Submit a Job</h2>
+        <div class="form-row">
+          <label>Target Cluster</label>
+          <select id="sub-cluster"></select>
+        </div>
+        <div class="form-grid">
+          <div class="form-row">
+            <label>Estimated Walltime (hours)</label>
+            <input id="sub-hours" type="number" min="0.1" step="0.5" value="2">
+          </div>
+          <div class="form-row">
+            <label>Number of GPUs (tracking only)</label>
+            <input id="sub-gpus" type="number" min="1" value="1">
+          </div>
+        </div>
+        <div class="form-row">
+          <label>Description</label>
+          <input id="sub-desc" type="text" placeholder="Short description of this job">
+        </div>
+        <div class="form-row">
+          <label>SLURM Script</label>
+          <div class="file-drop" id="file-drop" onclick="document.getElementById('file-input').click()">
+            Click to upload a .sh script — or paste below
+          </div>
+          <input type="file" id="file-input" accept=".sh,.slurm,.txt" style="display:none" onchange="handleFile(this)">
+        </div>
+        <div class="form-row">
+          <label>Script Content</label>
+          <textarea id="sub-script" rows="14" placeholder="#!/bin/bash
+#SBATCH --job-name=my_job
+#SBATCH --partition=rtx
+#SBATCH --gres=gpu:1
+#SBATCH --time=02:00:00
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=4
+
+module load python3
+python3 train.py"></textarea>
+        </div>
+        <button class="btn btn-primary" onclick="submitJob()">Submit to Queue</button>
+      </div>
+    </div>
+
+    <!-- Admin -->
+    <div id="tab-admin" style="display:none">
+      <div class="card">
+        <h2>All Jobs <button class="btn btn-muted btn-sm" onclick="loadJobs(true)" style="float:right">Refresh</button></h2>
+        <div class="tbl-wrap" id="admin-jobs-table">Loading…</div>
+      </div>
+      <div class="card">
+        <h2>Add User</h2>
+        <div class="form-grid">
+          <div class="form-row">
+            <label>Username</label>
+            <input id="new-username" type="text" placeholder="jane_doe">
+          </div>
+          <div class="form-row" style="display:flex;align-items:flex-end;gap:10px">
+            <div style="flex:1">
+              <label><input type="checkbox" id="new-is-admin"> Grant admin privileges</label>
+            </div>
+            <button class="btn btn-primary" onclick="addUser()">Create User</button>
+          </div>
+        </div>
+        <div id="new-user-result" style="margin-top:12px"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Detail modal -->
+<div id="modal-overlay" onclick="closeModal(event)">
+  <div class="modal" id="modal-content"></div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+let SERVER = '';
+let API_KEY = '';
+let IS_ADMIN = false;
+let ALL_JOBS_MODE = false;
+
+// ---------- Auth ----------
+function doLogin() {
+  SERVER = document.getElementById('login-server').value.replace(/\/$/, '');
+  API_KEY = document.getElementById('login-key').value.trim();
+  if (!API_KEY) { toast('Enter an API key', true); return; }
+  api('/me').then(me => {
+    IS_ADMIN = me.is_admin;
+    document.getElementById('username-badge').textContent = me.username + (me.is_admin ? ' (admin)' : '');
+    document.getElementById('login-screen').style.display = 'none';
+    document.getElementById('app-screen').style.display = 'block';
+    if (IS_ADMIN) document.getElementById('admin-tab').style.display = '';
+    loadAll();
+  }).catch(() => toast('Invalid API key or server unreachable', true));
+}
+
+function doLogout() {
+  SERVER = ''; API_KEY = '';
+  document.getElementById('login-screen').style.display = 'flex';
+  document.getElementById('app-screen').style.display = 'none';
+}
+
+// ---------- API ----------
+function api(path, opts = {}) {
+  return fetch(SERVER + path, {
+    headers: { 'X-API-Key': API_KEY, 'Content-Type': 'application/json', ...(opts.headers || {}) },
+    ...opts,
+  }).then(r => {
+    if (!r.ok) return r.json().then(e => Promise.reject(e.detail || r.statusText));
+    return r.json();
+  });
+}
+
+// ---------- Toast ----------
+function toast(msg, err = false) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = err ? 'err' : 'ok';
+  t.style.display = 'block';
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => t.style.display = 'none', 4000);
+}
+
+// ---------- Tabs ----------
+function switchTab(name) {
+  ['dashboard', 'submit', 'admin'].forEach(t => {
+    document.getElementById(`tab-${t}`).style.display = t === name ? '' : 'none';
+    document.querySelectorAll('.tab')[['dashboard','submit','admin'].indexOf(t)].classList.toggle('active', t === name);
+  });
+  if (name === 'dashboard') loadAll();
+  if (name === 'admin') loadJobs(true);
+}
+
+function loadAll() { loadClusters(); loadJobs(); loadClusterDropdown(); }
+
+// ---------- Clusters ----------
+function loadClusters() {
+  api('/clusters').then(data => {
+    const grid = document.getElementById('cluster-grid');
+    grid.innerHTML = '';
+    for (const [name, info] of Object.entries(data)) {
+      const idle = info.idle_nodes;
+      const isVP = info.type === 'voltagepark';
+      const availLabel = isVP ? 'available VMs' : 'idle GPU nodes';
+      const typeBadge = isVP
+        ? '<span style="font-size:10px;background:#312e81;color:#a5b4fc;padding:1px 6px;border-radius:99px;margin-left:6px">Voltage Park</span>'
+        : '<span style="font-size:10px;background:#1e3a4c;color:#67e8f9;padding:1px 6px;border-radius:99px;margin-left:6px">SLURM</span>';
+      const tile = document.createElement('div');
+      tile.className = 'cluster-tile';
+      tile.innerHTML = `
+        <div class="cluster-name">${name}${typeBadge}</div>
+        <div class="cluster-idle ${idle > 0 ? 'idle-ok' : 'idle-zero'}">${idle}</div>
+        <div class="cluster-sub">${availLabel} &bull; ${info.partition}@${info.host}</div>
+        ${info.error ? `<div style="color:var(--danger);font-size:11px;margin-top:4px">${info.error}</div>` : ''}
+      `;
+      grid.appendChild(tile);
+    }
+  }).catch(e => document.getElementById('cluster-grid').textContent = 'Error: ' + e);
+}
+
+function loadClusterDropdown() {
+  api('/clusters').then(data => {
+    const sel = document.getElementById('sub-cluster');
+    sel.innerHTML = '';
+    for (const name of Object.keys(data)) {
+      const opt = document.createElement('option');
+      opt.value = name; opt.textContent = name;
+      sel.appendChild(opt);
+    }
+  });
+}
+
+// ---------- Jobs ----------
+function statusBadge(s) {
+  return `<span class="badge badge-${s}">${s}</span>`;
+}
+
+function renderJobs(jobs, container) {
+  if (!jobs.length) { document.getElementById(container).innerHTML = '<p style="color:var(--muted);padding:12px 0">No jobs found.</p>'; return; }
+  const rows = jobs.map(j => `
+    <tr>
+      <td>${j.id}</td>
+      <td>${j.submitter}</td>
+      <td>${j.cluster}</td>
+      <td>${statusBadge(j.status)}</td>
+      <td>${j.estimated_hours.toFixed(1)}h</td>
+      <td>${j.gpu_count}</td>
+      <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${j.description || '—'}</td>
+      <td>${j.slurm_job_id || '—'}</td>
+      <td>
+        <button class="btn btn-muted btn-sm" onclick="showJob(${j.id})">Detail</button>
+        ${canWithdraw(j) ? `<button class="btn btn-danger btn-sm" onclick="withdrawJob(${j.id})" style="margin-left:4px">Withdraw</button>` : ''}
+        ${IS_ADMIN && j.status === 'validated' ? `<button class="btn btn-success btn-sm" onclick="approveJob(${j.id})" style="margin-left:4px">Approve</button>` : ''}
+        ${IS_ADMIN && ['validated','approved','pending'].includes(j.status) ? `<button class="btn btn-warn btn-sm" onclick="rejectJob(${j.id})" style="margin-left:4px">Reject</button>` : ''}
+      </td>
+    </tr>
+  `).join('');
+  document.getElementById(container).innerHTML = `
+    <table>
+      <thead><tr><th>ID</th><th>Submitter</th><th>Cluster</th><th>Status</th><th>ETA</th><th>GPUs</th><th>Description</th><th>SLURM ID</th><th>Actions</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+}
+
+function canWithdraw(j) {
+  return !['running','completed','failed','withdrawn'].includes(j.status);
+}
+
+function loadJobs(adminMode = false) {
+  ALL_JOBS_MODE = adminMode;
+  api('/jobs').then(jobs => {
+    renderJobs(jobs, 'jobs-table');
+    if (adminMode) renderJobs(jobs, 'admin-jobs-table');
+  }).catch(e => {
+    const msg = `<p style="color:var(--danger)">Error: ${e}</p>`;
+    document.getElementById('jobs-table').innerHTML = msg;
+    if (adminMode) document.getElementById('admin-jobs-table').innerHTML = msg;
+  });
+}
+
+// ---------- Submit ----------
+function handleFile(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => { document.getElementById('sub-script').value = e.target.result; };
+  reader.readAsText(file);
+  document.getElementById('file-drop').textContent = file.name;
+  document.getElementById('file-drop').classList.add('has-file');
+}
+
+function submitJob() {
+  const body = {
+    cluster: document.getElementById('sub-cluster').value,
+    script_content: document.getElementById('sub-script').value.trim(),
+    estimated_hours: parseFloat(document.getElementById('sub-hours').value),
+    gpu_count: parseInt(document.getElementById('sub-gpus').value),
+    description: document.getElementById('sub-desc').value.trim() || null,
+  };
+  if (!body.script_content) { toast('Script content is required', true); return; }
+  api('/jobs', { method: 'POST', body: JSON.stringify(body) })
+    .then(job => {
+      toast(`Job #${job.id} submitted — status: ${job.status}`);
+      document.getElementById('sub-script').value = '';
+      document.getElementById('sub-desc').value = '';
+      document.getElementById('file-drop').textContent = 'Click to upload a .sh script — or paste below';
+      document.getElementById('file-drop').classList.remove('has-file');
+      switchTab('dashboard');
+    })
+    .catch(e => toast('Submit failed: ' + e, true));
+}
+
+// ---------- Job actions ----------
+function withdrawJob(id) {
+  if (!confirm(`Withdraw job #${id}?`)) return;
+  api(`/jobs/${id}`, { method: 'DELETE' })
+    .then(() => { toast(`Job #${id} withdrawn`); loadJobs(ALL_JOBS_MODE); closeModal(); })
+    .catch(e => toast('Error: ' + e, true));
+}
+
+function approveJob(id) {
+  api(`/admin/jobs/${id}/approve`, { method: 'POST' })
+    .then(() => { toast(`Job #${id} approved`); loadJobs(ALL_JOBS_MODE); closeModal(); })
+    .catch(e => toast('Error: ' + e, true));
+}
+
+function rejectJob(id) {
+  const reason = prompt('Rejection reason (optional):') || '';
+  api(`/admin/jobs/${id}/reject?reason=${encodeURIComponent(reason)}`, { method: 'POST' })
+    .then(() => { toast(`Job #${id} rejected`); loadJobs(ALL_JOBS_MODE); closeModal(); })
+    .catch(e => toast('Error: ' + e, true));
+}
+
+// ---------- Detail modal ----------
+function showJob(id) {
+  api(`/jobs/${id}`).then(j => {
+    const m = document.getElementById('modal-content');
+    m.innerHTML = `
+      <h3>Job #${j.id} — ${statusBadge(j.status)}</h3>
+      <div class="detail-row"><span class="detail-label">Submitter</span>${j.submitter}</div>
+      <div class="detail-row"><span class="detail-label">Cluster</span>${j.cluster} &nbsp;(partition: ${j.partition})</div>
+      <div class="detail-row"><span class="detail-label">Description</span>${j.description || '—'}</div>
+      <div class="detail-row"><span class="detail-label">Valid</span>${j.is_valid ? '✓' : '✗'} &nbsp; ${j.validation_message || ''}</div>
+      <div class="detail-row"><span class="detail-label">Admin approved</span>${j.admin_approved ? 'Yes' : 'No'}</div>
+      <div class="detail-row"><span class="detail-label">Est. hours</span>${j.estimated_hours}</div>
+      <div class="detail-row"><span class="detail-label">GPUs</span>${j.gpu_count}</div>
+      <div class="detail-row"><span class="detail-label">SLURM job ID</span>${j.slurm_job_id || '—'}</div>
+      <div class="detail-row"><span class="detail-label">Submitted</span>${j.submitted_at}</div>
+      <div class="detail-row"><span class="detail-label">Approved at</span>${j.approved_at || '—'}</div>
+      <div class="detail-row"><span class="detail-label">Dispatched</span>${j.dispatched_at || '—'}</div>
+      <div class="detail-row"><span class="detail-label">Completed</span>${j.completed_at || '—'}</div>
+      ${j.notes ? `<div class="detail-row"><span class="detail-label">Admin notes</span>${j.notes}</div>` : ''}
+      <div style="margin-top:14px;font-size:12px;color:var(--muted)">Script</div>
+      <div class="code-block">${escHtml(j.script_content)}</div>
+      <div class="modal-actions">
+        <button class="btn btn-muted" onclick="closeModal()">Close</button>
+        ${canWithdraw(j) ? `<button class="btn btn-danger" onclick="withdrawJob(${j.id})">Withdraw</button>` : ''}
+        ${IS_ADMIN && j.status === 'validated' ? `<button class="btn btn-success" onclick="approveJob(${j.id})">Approve</button>` : ''}
+        ${IS_ADMIN && ['validated','approved','pending'].includes(j.status) ? `<button class="btn btn-warn" onclick="rejectJob(${j.id})">Reject</button>` : ''}
+      </div>`;
+    document.getElementById('modal-overlay').classList.add('open');
+  }).catch(e => toast('Error: ' + e, true));
+}
+
+function closeModal(e) {
+  if (e && e.target !== document.getElementById('modal-overlay')) return;
+  document.getElementById('modal-overlay').classList.remove('open');
+}
+
+function escHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ---------- Admin: add user ----------
+function addUser() {
+  const username = document.getElementById('new-username').value.trim();
+  const isAdmin = document.getElementById('new-is-admin').checked;
+  if (!username) { toast('Enter a username', true); return; }
+  api(`/admin/users?username=${encodeURIComponent(username)}&is_admin=${isAdmin}`, { method: 'POST' })
+    .then(u => {
+      document.getElementById('new-user-result').innerHTML = `
+        <div style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:12px;font-size:13px">
+          <strong>User '${u.username}' created.</strong><br>
+          API Key: <code style="background:#1a1d27;padding:2px 6px;border-radius:4px;font-size:12px">${u.api_key}</code><br>
+          <span style="color:var(--muted);font-size:12px">Share this key with the user — it will not be shown again.</span>
+        </div>`;
+      document.getElementById('new-username').value = '';
+      document.getElementById('new-is-admin').checked = false;
+    })
+    .catch(e => toast('Error: ' + e, true));
+}
+
+// Enter on login field
+document.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && document.getElementById('login-screen').style.display !== 'none') doLogin();
+});
+</script>
+</body>
+</html>
