@@ -317,12 +317,51 @@ function loadClusters() {
       const typeBadge = isVP
         ? '<span style="font-size:10px;background:#312e81;color:#a5b4fc;padding:1px 6px;border-radius:99px;margin-left:6px">Voltage Park</span>'
         : '<span style="font-size:10px;background:#1e3a4c;color:#67e8f9;padding:1px 6px;border-radius:99px;margin-left:6px">SLURM</span>';
+
+      // For VP, render a presets section showing GPU type, count, $/hr
+      let detail = '';
+      if (isVP && info.node_states) {
+        const ns = info.node_states;
+        const matching = ns.matching_presets || [];
+        const totalOffered = ns.total_presets_offered || 0;
+        const filter = ns.gpu_model_filter;
+
+        if (matching.length > 0) {
+          detail = '<div style="margin-top:8px;font-size:11px">' +
+            matching.map(p => {
+              const gpus = (p.gpus || []).map(g => `${g.count}× ${g.model}`).join(', ');
+              const rate = p.compute_rate_hourly ? `$${parseFloat(p.compute_rate_hourly).toFixed(2)}/h` : '—';
+              const avail = p.available_vms > 0 ? `<span style="color:var(--success);font-weight:600">${p.available_vms} avail</span>` : '<span style="color:var(--muted)">0 avail</span>';
+              return `<div style="padding:4px 0;border-top:1px solid var(--border)">
+                <div style="color:var(--text)">${gpus || 'no GPU info'}</div>
+                <div style="color:var(--muted);font-size:10px">${p.vcpu_count} vCPU · ${p.ram_gb}GB RAM · ${rate} &nbsp;·&nbsp; ${avail}</div>
+              </div>`;
+            }).join('') +
+            '</div>';
+        } else if (totalOffered > 0 && filter) {
+          detail = `<div style="margin-top:6px;font-size:11px;color:var(--warn)">
+            ${totalOffered} preset(s) offered but none match gpu_model_filter="${filter}"
+          </div>`;
+        } else {
+          detail = '<div style="margin-top:6px;font-size:11px;color:var(--muted)">No instant-deploy capacity exposed right now</div>';
+        }
+      } else if (!isVP && info.node_states) {
+        // For SLURM, show node state breakdown
+        const entries = Object.entries(info.node_states);
+        if (entries.length > 0) {
+          detail = '<div style="margin-top:6px;font-size:11px;color:var(--muted)">' +
+            entries.map(([s, n]) => `${s}: ${n}`).join(' &nbsp;·&nbsp; ') +
+            '</div>';
+        }
+      }
+
       const tile = document.createElement('div');
       tile.className = 'cluster-tile';
       tile.innerHTML = `
         <div class="cluster-name">${name}${typeBadge}</div>
         <div class="cluster-idle ${idle > 0 ? 'idle-ok' : 'idle-zero'}">${idle}</div>
         <div class="cluster-sub">${availLabel} &bull; ${info.partition}@${info.host}</div>
+        ${detail}
         ${info.error ? `<div style="color:var(--danger);font-size:11px;margin-top:4px">${info.error}</div>` : ''}
       `;
       grid.appendChild(tile);

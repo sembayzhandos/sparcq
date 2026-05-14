@@ -89,9 +89,40 @@ class VoltageParkCluster:
         return sum(p.get("available_vms", 0) for p in self._matching_presets())
 
     def get_partition_info(self) -> dict:
-        """Return a summary keyed by 'available' for dashboard display."""
-        presets = self._matching_presets()
-        return {"available": sum(p.get("available_vms", 0) for p in presets)}
+        """Return a per-preset breakdown of what's currently offered."""
+        matching = self._matching_presets()
+
+        # Also fetch the unfiltered list so we can show whether the filter
+        # is hiding otherwise-available capacity
+        all_data = self._get("/virtual-machines/instant/locations")
+        all_presets = []
+        for loc in all_data.get("results", []):
+            for p in loc.get("available_presets", []):
+                all_presets.append(p)
+
+        def _summarize(p: dict) -> dict:
+            gpus = p.get("resources", {}).get("gpus", {})
+            gpu_list = []
+            for model, info in gpus.items():
+                count = info if isinstance(info, int) else info.get("count", 0)
+                gpu_list.append({"model": model, "count": count})
+            return {
+                "gpus": gpu_list,
+                "vcpu_count": p.get("resources", {}).get("vcpu_count", 0),
+                "ram_gb": p.get("resources", {}).get("ram_gb", 0),
+                "storage_gb": p.get("resources", {}).get("storage_gb", 0),
+                "available_vms": p.get("available_vms", 0),
+                "compute_rate_hourly": p.get("compute_rate_hourly"),
+                "storage_rate_hourly": p.get("storage_rate_hourly"),
+            }
+
+        return {
+            "available": sum(p.get("available_vms", 0) for p in matching),
+            "matching_presets": [_summarize(p) for p in matching],
+            "all_presets": [_summarize(p) for p in all_presets],
+            "total_presets_offered": len(all_presets),
+            "gpu_model_filter": self.gpu_model_filter,
+        }
 
     def validate_script(self, script_content: str) -> tuple[bool, str]:
         """Validate a shell script (no SLURM headers required for VP jobs)."""
