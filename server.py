@@ -1,6 +1,7 @@
 """SPARCq — FastAPI server + background polling daemon."""
 
 import secrets
+from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Optional
 
@@ -54,25 +55,35 @@ def _bootstrap_admin():
             admin = User(username="admin", api_key=key, is_admin=True)
             db.add(admin)
             db.commit()
-            print(
+            # Write key to file so it survives noisy terminal output
+            with open("admin_key.txt", "w") as fh:
+                fh.write(key + "\n")
+            msg = (
                 "\n" + "=" * 60 + "\n"
-                "  First-run setup: admin user created.\n"
-                f"  API Key: {key}\n"
-                "  Save this key — it won't be shown again.\n"
-                "  Run:  sparcq configure\n"
-                "=" * 60 + "\n",
-                flush=True,
+                + "  SPARCq first-run setup complete.\n"
+                + f"  Admin API Key: {key}\n"
+                + "  Key also saved to: admin_key.txt\n"
+                + "=" * 60
             )
+            import sys
+            sys.stderr.write(msg + "\n")
+            sys.stderr.flush()
     finally:
         db.close()
 
-_bootstrap_admin()
-
 # ---------------------------------------------------------------------------
-# FastAPI app
+# FastAPI app — startup/shutdown via lifespan
 # ---------------------------------------------------------------------------
 
-app = FastAPI(title="SPARCq", version="1.0")
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    _bootstrap_admin()
+    _scheduler.start()
+    yield
+    _scheduler.shutdown(wait=False)
+
+
+app = FastAPI(title="SPARCq", version="1.0", lifespan=_lifespan)
 templates = Jinja2Templates(directory="templates")
 
 
@@ -446,10 +457,9 @@ _scheduler.add_job(
     minutes=CONFIG.get("status_check_interval_minutes", 2),
     id="check_status",
 )
-_scheduler.start()
 
 
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run("server:app", host="0.0.0.0", port=8000, reload=False)
+    uvicorn.run(app, host="0.0.0.0", port=8000)

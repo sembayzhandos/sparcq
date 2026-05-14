@@ -1,5 +1,8 @@
 # Database
 *.db
+
+# Auto-generated admin key on first run
+admin_key.txt
 *.db-shm
 *.db-wal
 

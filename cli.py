@@ -121,7 +121,7 @@ def configure(server: str, api_key: str):
               help="Number of GPUs needed (for informational tracking)")
 @click.option("--description", "-d", default=None,
               help="Short description of the job")
-def submit(script: str, cluster: str, hours: float, gpus: int, description: str | None):
+def submit(script: str, cluster: str, hours: float, gpus: int, description):
     """Submit a SLURM batch script to the queue."""
     content = Path(script).read_text()
     job = _post("/jobs", json={
