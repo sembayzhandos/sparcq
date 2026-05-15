@@ -47,6 +47,19 @@ Base.metadata.create_all(engine)
 SessionLocal = sessionmaker(bind=engine, autoflush=False)
 
 
+def _migrate_schema():
+    """Idempotent column additions for SQLite. Safe to call on every startup."""
+    from sqlalchemy import text
+    with engine.connect() as conn:
+        cols = {row[1] for row in conn.execute(text("PRAGMA table_info(jobs)")).fetchall()}
+        if "priority" not in cols:
+            conn.execute(text("ALTER TABLE jobs ADD COLUMN priority INTEGER NOT NULL DEFAULT 50"))
+            conn.commit()
+
+
+_migrate_schema()
+
+
 def _build_cluster(name: str, cfg: dict):
     ctype = cfg.get("type", "slurm").lower()
     if ctype == "voltagepark":
@@ -135,6 +148,7 @@ class JobIn(BaseModel):
     estimated_hours: float
     gpu_count: int = 1
     description: Optional[str] = None
+    priority: Optional[int] = None  # 1-100; defaults to 50, capped at max_user_priority for non-admins
 
 
 class JobOut(BaseModel):
@@ -146,6 +160,7 @@ class JobOut(BaseModel):
     gpu_count: int
     description: Optional[str]
     script_content: Optional[str] = None
+    priority: int = 50
     status: str
     is_valid: bool
     validation_message: Optional[str]
@@ -192,6 +207,13 @@ def submit_job(body: JobIn, user: User = Depends(_get_user), db: Session = Depen
         initial_status = "invalid"
         admin_approved = False
 
+    # Resolve priority: default 50, capped at max_user_priority for non-admins
+    max_user_pri = CONFIG.get("max_user_priority", 75)
+    requested_pri = body.priority if body.priority is not None else 50
+    requested_pri = max(1, min(100, requested_pri))
+    if not user.is_admin and requested_pri > max_user_pri:
+        requested_pri = max_user_pri
+
     job = Job(
         submitter=user.username,
         cluster=body.cluster,
@@ -200,6 +222,7 @@ def submit_job(body: JobIn, user: User = Depends(_get_user), db: Session = Depen
         estimated_hours=body.estimated_hours,
         gpu_count=body.gpu_count,
         description=body.description,
+        priority=requested_pri,
         status=initial_status,
         is_valid=is_valid,
         validation_message=msg,
@@ -321,6 +344,27 @@ def approve_job(job_id: int, admin: User = Depends(_require_admin), db: Session 
     return job
 
 
+@app.post("/admin/jobs/{job_id}/priority", response_model=JobOut)
+def set_job_priority(
+    job_id: int,
+    priority: int,
+    admin: User = Depends(_require_admin),
+    db: Session = Depends(get_db),
+):
+    """Admin: change the priority of any pending/approved job (1-100)."""
+    if priority < 1 or priority > 100:
+        raise HTTPException(400, "Priority must be between 1 and 100")
+    job = db.query(Job).filter(Job.id == job_id).first()
+    if not job:
+        raise HTTPException(404, "Job not found")
+    if job.status in ("submitted", "running", "completed", "failed", "withdrawn", "rejected"):
+        raise HTTPException(400, f"Cannot change priority of job in status '{job.status}'")
+    job.priority = priority
+    db.commit()
+    db.refresh(job)
+    return job
+
+
 @app.post("/admin/jobs/{job_id}/reject", response_model=JobOut)
 def reject_job(
     job_id: int,
@@ -382,40 +426,90 @@ def whoami(user: User = Depends(_get_user)):
 # ---------------------------------------------------------------------------
 
 def _poll_and_dispatch():
-    """Check each cluster for idle GPU nodes; dispatch approved jobs."""
+    """Check each cluster for idle capacity; dispatch approved jobs using
+    fair-share scheduling.
+
+    Dispatch order is:
+      1. Higher priority first
+      2. Among equal priority, the user with FEWER in-flight jobs goes first
+      3. Tiebreak by submitted_at (oldest first)
+
+    Users at the global concurrent cap are skipped entirely.
+    """
+    from sqlalchemy import func
+
+    max_per_user = CONFIG.get("max_concurrent_per_user")  # None = unlimited
+
     db = SessionLocal()
     try:
+        # Build a global per-user in-flight count once per polling cycle.
+        # This is updated locally as we dispatch so caps stay accurate.
+        in_flight: dict[str, int] = dict(
+            db.query(Job.submitter, func.count(Job.id))
+            .filter(Job.status.in_(["submitted", "running"]))
+            .group_by(Job.submitter)
+            .all()
+        )
+
         for cluster_name, cluster in CLUSTERS.items():
             try:
-                idle = cluster.get_idle_gpu_nodes()
-                if idle == 0:
+                slots = cluster.get_idle_gpu_nodes()
+                if slots == 0:
                     continue
 
                 is_vp = isinstance(cluster, VoltageParkCluster)
 
-                # VP: each job gets its own VM — dispatch all approved jobs up to idle capacity
-                # SLURM: dispatch up to idle_nodes jobs (one per node)
                 pending = (
                     db.query(Job)
                     .filter(Job.cluster == cluster_name, Job.status == "approved")
-                    .order_by(Job.submitted_at)
-                    .limit(idle)
                     .all()
                 )
+                if not pending:
+                    continue
 
-                for job in pending:
+                # Drop jobs from users already at their cap
+                if max_per_user is not None:
+                    pending = [
+                        j for j in pending
+                        if in_flight.get(j.submitter, 0) < max_per_user
+                    ]
+
+                # Dispatch loop: re-sort after each successful dispatch so the
+                # fair-share key (in_flight count) stays accurate.
+                while slots > 0 and pending:
+                    pending.sort(key=lambda j: (
+                        -(j.priority or 50),                   # higher priority first
+                        in_flight.get(j.submitter, 0),         # fewer in-flight first
+                        j.submitted_at,                        # oldest first
+                    ))
+                    job = pending.pop(0)
+
+                    # Re-check the user's cap before submitting
+                    if max_per_user is not None and in_flight.get(job.submitter, 0) >= max_per_user:
+                        continue
+
                     try:
                         remote_id = cluster.submit_job(job.script_content, job.id)
-                        if remote_id:
-                            job.slurm_job_id = remote_id
-                            job.status = "submitted"
-                            job.dispatched_at = datetime.utcnow()
-                            label = "VM" if is_vp else "SLURM"
-                            print(f"[dispatch] Job #{job.id} → {cluster_name} {label}:{remote_id}", flush=True)
-                        else:
-                            print(f"[dispatch] Job #{job.id}: no ID returned from {cluster_name}", flush=True)
                     except Exception as exc:
                         print(f"[dispatch] Failed to submit job #{job.id}: {exc}", flush=True)
+                        continue
+
+                    if not remote_id:
+                        print(f"[dispatch] Job #{job.id}: no ID returned from {cluster_name}", flush=True)
+                        continue
+
+                    job.slurm_job_id = remote_id
+                    job.status = "submitted"
+                    job.dispatched_at = datetime.utcnow()
+                    in_flight[job.submitter] = in_flight.get(job.submitter, 0) + 1
+                    slots -= 1
+
+                    label = "VM" if is_vp else "SLURM"
+                    print(
+                        f"[dispatch] Job #{job.id} ({job.submitter}, pri={job.priority}) "
+                        f"→ {cluster_name} {label}:{remote_id}",
+                        flush=True,
+                    )
 
                 db.commit()
             except Exception as exc:

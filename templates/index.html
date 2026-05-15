@@ -185,9 +185,20 @@
             <input id="sub-gpus" type="number" min="1" value="1">
           </div>
         </div>
-        <div class="form-row">
-          <label>Description</label>
-          <input id="sub-desc" type="text" placeholder="Short description of this job">
+        <div class="form-grid">
+          <div class="form-row">
+            <label>Priority</label>
+            <select id="sub-priority">
+              <option value="25">Low</option>
+              <option value="50" selected>Normal</option>
+              <option value="75">High</option>
+              <option value="100">Urgent (admin only)</option>
+            </select>
+          </div>
+          <div class="form-row">
+            <label>Description</label>
+            <input id="sub-desc" type="text" placeholder="Short description of this job">
+          </div>
         </div>
         <div class="form-row">
           <label>SLURM Script</label>
@@ -388,6 +399,16 @@ function statusBadge(s) {
   return `<span class="badge badge-${s}">${s}</span>`;
 }
 
+function priorityBadge(p) {
+  const v = p == null ? 50 : p;
+  let label = 'Normal', bg = '#2a2d3e', fg = '#a3a3a3';
+  if (v >= 100)      { label = 'Urgent'; bg = '#7f1d1d'; fg = '#fecaca'; }
+  else if (v >= 75)  { label = 'High';   bg = '#78350f'; fg = '#fde68a'; }
+  else if (v >= 50)  { label = 'Normal'; bg = '#1e3a8a'; fg = '#93c5fd'; }
+  else               { label = 'Low';    bg = '#1f2937'; fg = '#94a3b8'; }
+  return `<span class="badge" style="background:${bg};color:${fg}" title="priority=${v}">${label}</span>`;
+}
+
 function renderJobs(jobs, container) {
   if (!jobs.length) { document.getElementById(container).innerHTML = '<p style="color:var(--muted);padding:12px 0">No jobs found.</p>'; return; }
   const rows = jobs.map(j => `
@@ -396,6 +417,7 @@ function renderJobs(jobs, container) {
       <td>${j.submitter}</td>
       <td>${j.cluster}</td>
       <td>${statusBadge(j.status)}</td>
+      <td>${priorityBadge(j.priority)}</td>
       <td>${j.estimated_hours.toFixed(1)}h</td>
       <td>${j.gpu_count}</td>
       <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${j.description || '—'}</td>
@@ -410,7 +432,7 @@ function renderJobs(jobs, container) {
   `).join('');
   document.getElementById(container).innerHTML = `
     <table>
-      <thead><tr><th>ID</th><th>Submitter</th><th>Cluster</th><th>Status</th><th>ETA</th><th>GPUs</th><th>Description</th><th>SLURM ID</th><th>Actions</th></tr></thead>
+      <thead><tr><th>ID</th><th>Submitter</th><th>Cluster</th><th>Status</th><th>Priority</th><th>ETA</th><th>GPUs</th><th>Description</th><th>SLURM ID</th><th>Actions</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>`;
 }
@@ -451,6 +473,7 @@ function submitJob() {
     estimated_hours: parseFloat(document.getElementById('sub-hours').value),
     gpu_count: parseInt(document.getElementById('sub-gpus').value),
     description: document.getElementById('sub-desc').value.trim() || null,
+    priority: parseInt(document.getElementById('sub-priority').value),
   };
   if (!body.script_content) { toast('Script content is required', true); return; }
   api('/jobs', { method: 'POST', body: JSON.stringify(body) })
@@ -486,6 +509,17 @@ function rejectJob(id) {
     .catch(e => toast('Error: ' + e, true));
 }
 
+function changePriority(id) {
+  const v = prompt('New priority (low / normal / high / urgent or 1-100):');
+  if (!v) return;
+  const pri_map = {'low':25, 'normal':50, 'high':75, 'urgent':100};
+  let pri = pri_map[v.toLowerCase()] || parseInt(v);
+  if (isNaN(pri) || pri < 1 || pri > 100) { toast('Invalid priority', true); return; }
+  api(`/admin/jobs/${id}/priority?priority=${pri}`, { method: 'POST' })
+    .then(() => { toast(`Job #${id} priority set to ${pri}`); loadJobs(ALL_JOBS_MODE); closeModal(); })
+    .catch(e => toast('Error: ' + e, true));
+}
+
 // ---------- Detail modal ----------
 function showJob(id) {
   api(`/jobs/${id}`).then(j => {
@@ -494,6 +528,7 @@ function showJob(id) {
       <h3>Job #${j.id} — ${statusBadge(j.status)}</h3>
       <div class="detail-row"><span class="detail-label">Submitter</span>${j.submitter}</div>
       <div class="detail-row"><span class="detail-label">Cluster</span>${j.cluster} &nbsp;(partition: ${j.partition})</div>
+      <div class="detail-row"><span class="detail-label">Priority</span>${priorityBadge(j.priority)} <span style="color:var(--muted);font-size:11px;margin-left:6px">(${j.priority ?? 50}/100)</span></div>
       <div class="detail-row"><span class="detail-label">Description</span>${j.description || '—'}</div>
       <div class="detail-row"><span class="detail-label">Valid</span>${j.is_valid ? '✓' : '✗'} &nbsp; ${j.validation_message || ''}</div>
       <div class="detail-row"><span class="detail-label">Admin approved</span>${j.admin_approved ? 'Yes' : 'No'}</div>
@@ -514,6 +549,7 @@ function showJob(id) {
         ${canWithdraw(j) ? `<button class="btn btn-danger" onclick="withdrawJob(${j.id})">Withdraw</button>` : ''}
         ${IS_ADMIN && j.status === 'validated' ? `<button class="btn btn-success" onclick="approveJob(${j.id})">Approve</button>` : ''}
         ${IS_ADMIN && ['validated','approved','pending'].includes(j.status) ? `<button class="btn btn-warn" onclick="rejectJob(${j.id})">Reject</button>` : ''}
+        ${IS_ADMIN && ['validated','approved','pending'].includes(j.status) ? `<button class="btn btn-muted" onclick="changePriority(${j.id})">Set Priority</button>` : ''}
       </div>`;
     document.getElementById('modal-overlay').classList.add('open');
   }).catch(e => toast('Error: ' + e, true));

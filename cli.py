@@ -121,15 +121,21 @@ def configure(server: str, api_key: str):
               help="Number of GPUs needed (for informational tracking)")
 @click.option("--description", "-d", default=None,
               help="Short description of the job")
-def submit(script: str, cluster: str, hours: float, gpus: int, description):
+@click.option("--priority", "-p",
+              type=click.Choice(["low", "normal", "high", "urgent"], case_sensitive=False),
+              default="normal", show_default=True,
+              help="Scheduling priority. 'urgent' is admin-only and capped by server")
+def submit(script: str, cluster: str, hours: float, gpus: int, description, priority: str):
     """Submit a SLURM batch script to the queue."""
     content = Path(script).read_text()
+    pri_map = {"low": 25, "normal": 50, "high": 75, "urgent": 100}
     job = _post("/jobs", json={
         "cluster": cluster,
         "script_content": content,
         "estimated_hours": hours,
         "gpu_count": gpus,
         "description": description,
+        "priority": pri_map[priority.lower()],
     })
     status = _colored_status(job["status"])
     click.echo(f"Job #{job['id']} submitted — status: {status}")
@@ -153,7 +159,7 @@ def list_jobs():
         click.echo("No jobs found.")
         return
 
-    header = f"{'ID':>5}  {'Submitter':<12}  {'Cluster':<10}  {'Status':<12}  {'ETA(h)':>6}  {'GPUs':>4}  Description"
+    header = f"{'ID':>5}  {'Submitter':<12}  {'Cluster':<10}  {'Status':<12}  {'Pri':>4}  {'ETA(h)':>6}  {'GPUs':>4}  Description"
     click.echo(header)
     click.echo("-" * len(header))
     for j in jobs:
@@ -161,8 +167,8 @@ def list_jobs():
         slurm = f"  [SLURM:{j['slurm_job_id']}]" if j.get("slurm_job_id") else ""
         click.echo(
             f"{j['id']:>5}  {j['submitter']:<12}  {j['cluster']:<10}  "
-            f"{_colored_status(j['status']):<21}  {j['estimated_hours']:>6.1f}  "
-            f"{j['gpu_count']:>4}  {desc}{slurm}"
+            f"{_colored_status(j['status']):<21}  {j.get('priority', 50):>4}  "
+            f"{j['estimated_hours']:>6.1f}  {j['gpu_count']:>4}  {desc}{slurm}"
         )
 
 
@@ -179,6 +185,7 @@ def show(job_id: int):
     click.echo(f"  Submitter   : {j['submitter']}")
     click.echo(f"  Cluster     : {j['cluster']} (partition: {j['partition']})")
     click.echo(f"  Status      : {_colored_status(j['status'])}")
+    click.echo(f"  Priority    : {j.get('priority', 50)}")
     click.echo(f"  Valid       : {'yes' if j['is_valid'] else 'no'} — {j['validation_message']}")
     click.echo(f"  Approved    : {'yes' if j['admin_approved'] else 'no'}")
     click.echo(f"  Est. hours  : {j['estimated_hours']}")
@@ -251,6 +258,17 @@ def admin_reject(job_id: int, reason: str):
     """Reject a job with an optional reason."""
     job = _post(f"/admin/jobs/{job_id}/reject", params={"reason": reason})
     click.echo(f"Job #{job_id} rejected.")
+
+
+@admin.command("set-priority")
+@click.argument("job_id", type=int)
+@click.argument("priority",
+                type=click.Choice(["low", "normal", "high", "urgent"], case_sensitive=False))
+def admin_set_priority(job_id: int, priority: str):
+    """Change a job's priority (low=25, normal=50, high=75, urgent=100)."""
+    pri_map = {"low": 25, "normal": 50, "high": 75, "urgent": 100}
+    job = _post(f"/admin/jobs/{job_id}/priority", params={"priority": pri_map[priority.lower()]})
+    click.echo(f"Job #{job_id} priority set to {priority} ({job['priority']})")
 
 
 @admin.command("add-user")

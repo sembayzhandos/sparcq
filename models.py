@@ -17,6 +17,10 @@ class Job(Base):
     gpu_count = Column(Integer, default=1)
     description = Column(Text)
 
+    # Scheduling priority: higher dispatches first within the same cluster.
+    # Convention: 25=low, 50=normal (default), 75=high, 100=urgent (admin-only).
+    priority = Column(Integer, default=50, nullable=False)
+
     # Status lifecycle:
     # pending → validated/invalid → approved/rejected → submitted → running → completed/failed
     # Any pre-dispatch status can become 'withdrawn'
