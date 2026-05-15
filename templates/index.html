@@ -162,6 +162,20 @@
         <div class="cluster-grid" id="cluster-grid">Loading…</div>
       </div>
       <div class="card">
+        <h2>
+          <span>Voltage Park Spend
+            <select id="billing-period" onchange="loadBilling()" style="margin-left:8px;width:auto;padding:2px 6px;font-size:12px">
+              <option value="day">Last 24h</option>
+              <option value="week" selected>Last 7d</option>
+              <option value="month">Last 30d</option>
+              <option value="all">All time</option>
+            </select>
+          </span>
+          <button class="btn btn-muted btn-sm" onclick="loadBilling()">Refresh</button>
+        </h2>
+        <div id="billing-content">Loading…</div>
+      </div>
+      <div class="card">
         <h2>My Jobs <button class="btn btn-muted btn-sm" onclick="loadJobs()">Refresh</button></h2>
         <div class="tbl-wrap" id="jobs-table">Loading…</div>
       </div>
@@ -315,7 +329,84 @@ function switchTab(name) {
   if (name === 'admin') loadJobs(true);
 }
 
-function loadAll() { loadClusters(); loadJobs(); loadClusterDropdown(); }
+function loadAll() { loadClusters(); loadJobs(); loadClusterDropdown(); loadBilling(); }
+
+// ---------- Billing ----------
+function loadBilling() {
+  const period = (document.getElementById('billing-period') || {}).value || 'week';
+  const container = document.getElementById('billing-content');
+  if (!container) return;
+  container.innerHTML = '<div style="color:var(--muted);padding:8px 0">Refreshing…</div>';
+  api(`/billing/summary?period=${period}`).then(d => {
+    const burn = d.in_flight_burn_rate_usd_per_hour;
+    const total = d.completed_grand_total_usd;
+    const inflightCount = (d.in_flight || []).length;
+    const inflightTotal = (d.in_flight || []).reduce((s, r) => s + r.estimated_cost_usd, 0);
+
+    let userRows = '';
+    if ((d.completed_by_user || []).length) {
+      userRows = `
+        <div style="margin-top:12px;font-size:12px;color:var(--muted)">Completed jobs by user</div>
+        <table style="margin-top:6px">
+          <thead><tr><th>User</th><th style="text-align:right">Jobs</th><th style="text-align:right">Total $</th></tr></thead>
+          <tbody>
+            ${d.completed_by_user.map(r => `
+              <tr>
+                <td>${escHtml(r.submitter)}</td>
+                <td style="text-align:right">${r.job_count}</td>
+                <td style="text-align:right">$${r.total_cost_usd.toFixed(2)}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      `;
+    } else {
+      userRows = '<div style="margin-top:12px;color:var(--muted);font-size:12px">No completed VP jobs in this period.</div>';
+    }
+
+    let inflightRows = '';
+    if (inflightCount > 0) {
+      inflightRows = `
+        <div style="margin-top:16px;font-size:12px;color:var(--muted)">In-flight (running now)</div>
+        <table style="margin-top:6px">
+          <thead><tr><th>Job</th><th>User</th><th style="text-align:right">Rate $/h</th><th style="text-align:right">Elapsed</th><th style="text-align:right">Cost so far</th></tr></thead>
+          <tbody>
+            ${d.in_flight.map(r => `
+              <tr>
+                <td>#${r.job_id}</td>
+                <td>${escHtml(r.submitter)}</td>
+                <td style="text-align:right">$${r.hourly_rate_usd.toFixed(2)}</td>
+                <td style="text-align:right">${r.elapsed_hours.toFixed(2)}h</td>
+                <td style="text-align:right">$${r.estimated_cost_usd.toFixed(2)}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      `;
+    }
+
+    container.innerHTML = `
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px">
+        <div class="cluster-tile">
+          <div class="cluster-sub">Completed total</div>
+          <div style="font-size:22px;font-weight:700;color:${total > 0 ? 'var(--accent2)' : 'var(--muted)'}">$${total.toFixed(2)}</div>
+        </div>
+        <div class="cluster-tile">
+          <div class="cluster-sub">Burn rate (running)</div>
+          <div style="font-size:22px;font-weight:700;color:${burn > 0 ? 'var(--warn)' : 'var(--muted)'}">$${burn.toFixed(2)}/h</div>
+        </div>
+        <div class="cluster-tile">
+          <div class="cluster-sub">Running cost so far</div>
+          <div style="font-size:22px;font-weight:700;color:${inflightTotal > 0 ? 'var(--warn)' : 'var(--muted)'}">$${inflightTotal.toFixed(2)}</div>
+        </div>
+      </div>
+      ${userRows}
+      ${inflightRows}
+    `;
+  }).catch(e => {
+    container.innerHTML = `<div style="color:var(--danger);font-size:13px">Error: ${e}</div>`;
+  });
+}
 
 // ---------- Clusters ----------
 function loadClusters() {
@@ -539,6 +630,8 @@ function showJob(id) {
       <div class="detail-row"><span class="detail-label">Approved at</span>${j.approved_at || '—'}</div>
       <div class="detail-row"><span class="detail-label">Dispatched</span>${j.dispatched_at || '—'}</div>
       <div class="detail-row"><span class="detail-label">Completed</span>${j.completed_at || '—'}</div>
+      ${j.hourly_rate_usd ? `<div class="detail-row"><span class="detail-label">Hourly rate</span>$${j.hourly_rate_usd.toFixed(2)}/h</div>` : ''}
+      ${j.total_cost_usd != null ? `<div class="detail-row"><span class="detail-label">Total cost</span><span style="color:var(--accent2);font-weight:600">$${j.total_cost_usd.toFixed(4)}</span></div>` : ''}
       ${j.notes ? `<div class="detail-row"><span class="detail-label">Admin notes</span>${j.notes}</div>` : ''}
       <div style="margin-top:14px;font-size:12px;color:var(--muted)">Script</div>
       <div class="code-block">${escHtml(j.script_content)}</div>

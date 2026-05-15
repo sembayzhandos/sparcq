@@ -37,6 +37,11 @@ class Job(Base):
     dispatched_at = Column(DateTime)
     completed_at = Column(DateTime)
 
+    # Cost tracking (currently populated for Voltage Park jobs only).
+    # hourly_rate_usd captured at dispatch; total_cost_usd finalized at completion.
+    hourly_rate_usd = Column(Float)
+    total_cost_usd = Column(Float)
+
 
 class User(Base):
     __tablename__ = "users"

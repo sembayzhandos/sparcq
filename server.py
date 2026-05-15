@@ -54,7 +54,11 @@ def _migrate_schema():
         cols = {row[1] for row in conn.execute(text("PRAGMA table_info(jobs)")).fetchall()}
         if "priority" not in cols:
             conn.execute(text("ALTER TABLE jobs ADD COLUMN priority INTEGER NOT NULL DEFAULT 50"))
-            conn.commit()
+        if "hourly_rate_usd" not in cols:
+            conn.execute(text("ALTER TABLE jobs ADD COLUMN hourly_rate_usd FLOAT"))
+        if "total_cost_usd" not in cols:
+            conn.execute(text("ALTER TABLE jobs ADD COLUMN total_cost_usd FLOAT"))
+        conn.commit()
 
 
 _migrate_schema()
@@ -171,6 +175,8 @@ class JobOut(BaseModel):
     approved_at: Optional[datetime]
     dispatched_at: Optional[datetime]
     completed_at: Optional[datetime]
+    hourly_rate_usd: Optional[float] = None
+    total_cost_usd: Optional[float] = None
 
     class Config:
         from_attributes = True
@@ -321,6 +327,80 @@ def cluster_status(user: User = Depends(_get_user)):
                 "error": str(exc),
             }
     return result
+
+
+# ---------------------------------------------------------------------------
+# Billing
+# ---------------------------------------------------------------------------
+
+@app.get("/billing/summary")
+def billing_summary(
+    period: str = "all",  # all | month | week | day
+    user: User = Depends(_get_user),
+    db: Session = Depends(get_db),
+):
+    """Aggregate Voltage Park spend. Users see their own; admins see everyone's."""
+    from sqlalchemy import func
+    from datetime import timedelta
+
+    now = datetime.utcnow()
+    cutoffs = {
+        "day":   now - timedelta(days=1),
+        "week":  now - timedelta(days=7),
+        "month": now - timedelta(days=30),
+        "all":   None,
+    }
+    if period not in cutoffs:
+        raise HTTPException(400, f"Invalid period '{period}'. Use one of: {list(cutoffs)}")
+
+    q = db.query(
+        Job.submitter,
+        func.count(Job.id),
+        func.coalesce(func.sum(Job.total_cost_usd), 0.0),
+    ).filter(Job.total_cost_usd.isnot(None))
+
+    if cutoffs[period] is not None:
+        q = q.filter(Job.completed_at >= cutoffs[period])
+
+    if not user.is_admin:
+        q = q.filter(Job.submitter == user.username)
+
+    rows = q.group_by(Job.submitter).all()
+
+    # Also count in-flight VP jobs with their estimated running cost so the
+    # admin can see "burn rate" right now
+    inflight_q = db.query(Job).filter(
+        Job.status.in_(["submitted", "running"]),
+        Job.hourly_rate_usd.isnot(None),
+        Job.dispatched_at.isnot(None),
+    )
+    if not user.is_admin:
+        inflight_q = inflight_q.filter(Job.submitter == user.username)
+
+    inflight_rows = []
+    for j in inflight_q.all():
+        elapsed_h = (now - j.dispatched_at).total_seconds() / 3600.0
+        inflight_rows.append({
+            "job_id": j.id,
+            "submitter": j.submitter,
+            "cluster": j.cluster,
+            "hourly_rate_usd": j.hourly_rate_usd,
+            "elapsed_hours": round(elapsed_h, 3),
+            "estimated_cost_usd": round(j.hourly_rate_usd * elapsed_h, 4),
+        })
+
+    return {
+        "period": period,
+        "completed_by_user": [
+            {"submitter": r[0], "job_count": r[1], "total_cost_usd": round(r[2], 4)}
+            for r in rows
+        ],
+        "completed_grand_total_usd": round(sum(r[2] for r in rows), 4),
+        "in_flight": inflight_rows,
+        "in_flight_burn_rate_usd_per_hour": round(
+            sum(r["hourly_rate_usd"] for r in inflight_rows), 4
+        ),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -501,13 +581,26 @@ def _poll_and_dispatch():
                     job.slurm_job_id = remote_id
                     job.status = "submitted"
                     job.dispatched_at = datetime.utcnow()
+
+                    # Capture hourly rate at dispatch for VP cost tracking
+                    if is_vp:
+                        rate = getattr(cluster, "_last_dispatch_rate_usd", None)
+                        if not rate:
+                            try:
+                                rate = cluster.get_hourly_rate_for(remote_id)
+                            except Exception:
+                                rate = None
+                        if rate is not None:
+                            job.hourly_rate_usd = rate
+
                     in_flight[job.submitter] = in_flight.get(job.submitter, 0) + 1
                     slots -= 1
 
                     label = "VM" if is_vp else "SLURM"
+                    rate_str = f" @ ${job.hourly_rate_usd:.2f}/h" if is_vp and job.hourly_rate_usd else ""
                     print(
                         f"[dispatch] Job #{job.id} ({job.submitter}, pri={job.priority}) "
-                        f"→ {cluster_name} {label}:{remote_id}",
+                        f"→ {cluster_name} {label}:{remote_id}{rate_str}",
                         flush=True,
                     )
 
@@ -553,6 +646,9 @@ def _check_running_jobs():
                         job.status = "failed"
                         job.notes = (job.notes or "") + " [auto-terminated: exceeded timeout]"
                         job.completed_at = datetime.utcnow()
+                        if job.hourly_rate_usd:
+                            elapsed_hours = (job.completed_at - job.dispatched_at).total_seconds() / 3600.0
+                            job.total_cost_usd = round(job.hourly_rate_usd * elapsed_hours, 4)
                         continue
 
                 new_status = cluster.check_job_status(job.slurm_job_id)
@@ -563,6 +659,17 @@ def _check_running_jobs():
 
                 if new_status in ("completed", "failed"):
                     job.completed_at = datetime.utcnow()
+
+                    # Finalize VP cost: rate × elapsed hours
+                    if is_vp and job.hourly_rate_usd and job.dispatched_at:
+                        elapsed_hours = (job.completed_at - job.dispatched_at).total_seconds() / 3600.0
+                        job.total_cost_usd = round(job.hourly_rate_usd * elapsed_hours, 4)
+                        print(
+                            f"[billing] Job #{job.id} cost: ${job.total_cost_usd:.4f} "
+                            f"({elapsed_hours:.3f}h × ${job.hourly_rate_usd:.2f}/h)",
+                            flush=True,
+                        )
+
                     # Clean up VP VM (VM is Stopped after poweroff; we delete it)
                     if is_vp:
                         try:

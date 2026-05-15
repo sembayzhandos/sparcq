@@ -189,7 +189,25 @@ class VoltageParkCluster:
         }
 
         result = self._post("/virtual-machines/instant", payload)
-        return result.get("vm_id")
+        vm_id = result.get("vm_id")
+
+        # Stash the preset's hourly rates on the instance so the dispatcher can
+        # read them back without an extra API call. Cleared on the next submit.
+        compute = _safe_float(preset.get("compute_rate_hourly"))
+        storage = _safe_float(preset.get("storage_rate_hourly"))
+        self._last_dispatch_rate_usd = (compute or 0.0) + (storage or 0.0)
+
+        return vm_id
+
+    def get_hourly_rate_for(self, vm_id: str) -> Optional[float]:
+        """Return total $/hr while the VM is associated, querying VP directly.
+        Preferred over the cached preset rate because VP can change pricing."""
+        try:
+            vm = self._get(f"/virtual-machines/{vm_id}")
+        except Exception:
+            return None
+        pricing = vm.get("pricing") or {}
+        return _safe_float(pricing.get("total_associated_per_hr"))
 
     def check_job_status(self, vm_id: str) -> str:
         """Query VP API for VM status and map to internal status."""
@@ -219,3 +237,13 @@ class VoltageParkCluster:
             if exc.response is not None and exc.response.status_code == 404:
                 return None
             raise
+
+
+def _safe_float(value) -> Optional[float]:
+    """VP returns prices as strings ('3.20'). Coerce defensively."""
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
